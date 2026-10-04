@@ -429,37 +429,23 @@ popup = folium.Popup(
     # Agregar polígono
     # --------------------------------------------------------
 
-folium.GeoJson(
-
+    folium.GeoJson(
         feature,
-
         style_function=lambda feature,
-        color=color,
-        relleno=relleno,
-        opacidad=opacidad: {
-
-            "color": color,
-
-            "weight": 2,
-
-            "fillColor": relleno,
-
-            "fillOpacity": opacidad
-
-        },
-
+            color=color,
+            relleno=relleno,
+            opacidad=opacidad: {
+                "color": color,
+                "weight": 2,
+                "fillColor": relleno,
+                "fillOpacity": opacidad
+            },
         highlight_function=lambda feature: {
-
             "weight": 4,
-
             "fillOpacity": 0.85
-
         },
-
         popup=popup,
-
         tooltip=codigo
-
     ).add_to(m)
 
     # --------------------------------------------------------
@@ -469,14 +455,10 @@ folium.GeoJson(
     geometry = feature["geometry"]
 
     for ring in geometry["coordinates"]:
-
         for lon, lat in ring:
-
             todos_los_puntos.append(
                 [lat, lon]
             )
-
-
 # ============================================================
 # AJUSTAR MAPA A LOS POTREROS
 # ============================================================
