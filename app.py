@@ -429,7 +429,7 @@ popup = folium.Popup(
     # Agregar polígono
     # --------------------------------------------------------
 
-    folium.GeoJson(
+folium.GeoJson(
 
         feature,
 
