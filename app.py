@@ -339,15 +339,80 @@ for feature in features:
         opacidad = 0.25
 
     # --------------------------------------------------------
-    # Popup
-    # --------------------------------------------------------
+# Popup con información de la rotación
+# --------------------------------------------------------
 
-    estado = "OCUPADO ACTUALMENTE" if ocupado else "NO OCUPADO"
+estado = "OCUPADO ACTUALMENTE" if ocupado else "NO OCUPADO"
+
+# Buscar información del potrero en el Excel
+datos_potrero = df_rotaciones[
+    df_rotaciones["Potrero"].astype(str).str.strip().str.upper() == codigo
+]
+
+if ocupado and not datos_potrero.empty:
+
+    fila = datos_potrero.iloc[0]
+
+    # Fecha del último movimiento
+    fecha_movimiento = pd.to_datetime(
+        fila["Última fecha de movimiento"],
+        errors="coerce"
+    )
+
+    if pd.notna(fecha_movimiento):
+        fecha_movimiento = fecha_movimiento.strftime("%d/%m/%Y")
+    else:
+        fecha_movimiento = "No disponible"
+
+    # Función para mostrar valores vacíos de forma limpia
+    def mostrar_valor(valor, sufijo=""):
+        if pd.isna(valor) or str(valor).strip() == "":
+            return "No disponible"
+        return f"{valor}{sufijo}"
+
+    lote = mostrar_valor(fila["Lote"])
+    tipo_lote = mostrar_valor(fila["Tipo de lote"])
+    cantidad = mostrar_valor(fila["Cantidad de animales"])
+    altura_actual = mostrar_valor(
+        fila["Altura promedio actual (cm)"],
+        " cm"
+    )
+    altura_anterior = mostrar_valor(
+        fila["Altura promedio anterior (cm)"],
+        " cm"
+    )
+    observaciones = mostrar_valor(fila["Observaciones"])
+
+    popup_html = f"""
+    <div style="font-family:Arial; min-width:260px;">
+
+        <h4 style="margin-bottom:8px;">
+            {codigo}
+        </h4>
+
+        <b>Estado:</b> {estado}<br><br>
+
+        <b>Rotación:</b> {fila["Rotacion"]}<br>
+        <b>Último movimiento:</b> {fecha_movimiento}<br>
+        <b>Lote:</b> {lote}<br>
+        <b>Tipo de lote:</b> {tipo_lote}<br>
+        <b>Cantidad de animales:</b> {cantidad}<br><br>
+
+        <b>Altura promedio actual:</b> {altura_actual}<br>
+        <b>Altura promedio anterior:</b> {altura_anterior}<br><br>
+
+        <b>Observaciones:</b><br>
+        {observaciones}
+
+    </div>
+    """
+
+else:
 
     popup_html = f"""
     <div style="font-family:Arial;">
 
-        <h4 style="margin-bottom:5px;">
+        <h4 style="margin-bottom:8px;">
             {codigo}
         </h4>
 
@@ -356,11 +421,10 @@ for feature in features:
     </div>
     """
 
-    popup = folium.Popup(
-        popup_html,
-        max_width=300
-    )
-
+popup = folium.Popup(
+    popup_html,
+    max_width=350
+)
     # --------------------------------------------------------
     # Agregar polígono
     # --------------------------------------------------------
