@@ -18,9 +18,14 @@ st.set_page_config(
 
 st.title("🌱 Proyecto Ganadería Veraditas — PGVE")
 st.caption(
-    "Mapa operativo de potreros y rotaciones según el último "
-    "movimiento registrado"
+    "Mapa operativo de potreros y rotaciones "
+    "según la ubicación actual registrada"
 )
+
+
+# ============================================================
+# ARCHIVOS DEL REPOSITORIO
+# ============================================================
 
 ARCHIVO_MAESTRO = "Tabla Maestra PGVE 2026.xlsx"
 ARCHIVO_MOVIMIENTOS = "Analisis_Rotaciones_Potrero_Actual.xlsx"
@@ -28,117 +33,118 @@ ARCHIVO_KML = "KML_Potreros_PGVE.zip"
 
 
 # ============================================================
-# FUNCIONES
+# FUNCIONES GENERALES
 # ============================================================
 
 def limpiar_texto(valor):
+    """Convierte un valor a texto limpio y mayúsculas."""
     if pd.isna(valor):
         return ""
     return str(valor).strip().upper()
 
 
 def mostrar_valor(valor, sufijo=""):
-    if valor is None or pd.isna(valor) or str(valor).strip() == "":
+    """Muestra valores vacíos como No disponible."""
+    if pd.isna(valor) or str(valor).strip() == "":
         return "No disponible"
+
     return f"{valor}{sufijo}"
 
 
 def es_majada(codigo):
+    """
+    Identifica las majadas mediante su nomenclatura:
+    M1-B01SS, M2-B01SS, M1-B01CA, etc.
+    """
     codigo = limpiar_texto(codigo)
     return codigo.startswith("M") and "-B" in codigo
 
 
-def normalizar_rotacion(valor):
-    valor = limpiar_texto(valor)
-    if not valor:
-        return ""
-    if valor.startswith("R"):
-        return valor
-    if valor.isdigit():
-        return f"R{int(valor):02d}"
-    return valor
-
-
-def normalizar_potrero(codigo, predio=""):
+def obtener_rotacion_desde_potrero(codigo):
     """
-    Convierte P1-R09 -> P1-R09VE.
-    Si ya termina en el predio, lo conserva.
+    Ejemplo:
+    P1-R01VE -> R01VE
+    P2-R26SS -> R26SS
     """
     codigo = limpiar_texto(codigo)
-    predio = limpiar_texto(predio)
 
-    if not codigo:
-        return ""
+    if "-R" in codigo:
+        parte = codigo.split("-R", 1)[1]
 
-    if predio and codigo.endswith(predio):
-        return codigo
+        # El resultado queda como 01VE, 26SS, etc.
+        return "R" + parte
 
-    if codigo.startswith("P") and "-R" in codigo and predio:
-        return f"{codigo}{predio}"
-
-    return codigo
+    return ""
 
 
-def clave_rotacion(predio, rotacion):
-    predio = limpiar_texto(predio)
-    rotacion = normalizar_rotacion(rotacion)
+# ============================================================
+# FUNCIÓN PARA EXTRAER GEOMETRÍAS KML
+# ============================================================
 
-    if not predio or not rotacion:
-        return ""
+def extraer_geometrias_kml(contenido_kml):
 
-    return f"{rotacion}{predio}"
+    root = ET.fromstring(contenido_kml)
 
+    ns = {
+        "kml": "http://www.opengis.net/kml/2.2"
+    }
 
-def buscar_columna(df, candidatos):
-    """
-    Devuelve el primer nombre de columna existente entre candidatos.
-    """
-    for c in candidatos:
-        if c in df.columns:
-            return c
-    return None
-
-
-def extraer_geometrias_kml(contenido):
-    root = ET.fromstring(contenido)
-    ns = {"kml": "http://www.opengis.net/kml/2.2"}
     geometrias = []
 
     for polygon in root.findall(".//kml:Polygon", ns):
+
         outer = polygon.find(
-            ".//kml:outerBoundaryIs/kml:LinearRing/kml:coordinates",
+            ".//kml:outerBoundaryIs/"
+            "kml:LinearRing/"
+            "kml:coordinates",
             ns
         )
 
         if outer is None or not outer.text:
             continue
 
-        coords = []
+        coordenadas = []
 
         for punto in outer.text.strip().split():
+
             partes = punto.split(",")
 
             if len(partes) >= 2:
+
                 try:
                     lon = float(partes[0])
                     lat = float(partes[1])
-                    coords.append([lon, lat])
-                except ValueError:
-                    pass
 
-        if len(coords) >= 3:
+                    coordenadas.append(
+                        [lon, lat]
+                    )
+
+                except ValueError:
+                    continue
+
+        if len(coordenadas) >= 3:
+
             geometrias.append({
                 "type": "Polygon",
-                "coordinates": [coords]
+                "coordinates": [coordenadas]
             })
 
     return geometrias
 
 
-def obtener_nombre_kml(contenido):
+# ============================================================
+# OBTENER NOMBRE DEL KML
+# ============================================================
+
+def obtener_nombre_kml(contenido_kml):
+
     try:
-        root = ET.fromstring(contenido)
-        ns = {"kml": "http://www.opengis.net/kml/2.2"}
+
+        root = ET.fromstring(contenido_kml)
+
+        ns = {
+            "kml": "http://www.opengis.net/kml/2.2"
+        }
 
         nombre = root.find(
             ".//kml:Placemark/kml:name",
@@ -155,18 +161,28 @@ def obtener_nombre_kml(contenido):
 
 
 # ============================================================
-# TABLA MAESTRA
+# LEER TABLA MAESTRA
 # ============================================================
 
 try:
+
     df_maestro = pd.read_excel(
         ARCHIVO_MAESTRO,
         sheet_name="General Potreros"
     )
+
 except Exception as e:
-    st.error(f"No fue posible leer la Tabla Maestra: {e}")
+
+    st.error(
+        f"No fue posible leer la Tabla Maestra: {e}"
+    )
+
     st.stop()
 
+
+# ============================================================
+# VALIDAR TABLA MAESTRA
+# ============================================================
 
 columnas_maestro = [
     "Predio",
@@ -184,217 +200,197 @@ faltantes = [
 ]
 
 if faltantes:
+
     st.error(
-        "Faltan columnas en la Tabla Maestra: "
-        + ", ".join(faltantes)
+        "Faltan columnas en la Tabla Maestra:"
     )
+
+    st.write(faltantes)
+
     st.stop()
 
 
-for c in ["Predio", "Rotación", "Potrero", "Bebedero", "Estado"]:
-    df_maestro[c] = df_maestro[c].apply(limpiar_texto)
+# ============================================================
+# NORMALIZAR TABLA MAESTRA
+# ============================================================
 
-df_maestro["Rotación"] = (
-    df_maestro["Rotación"].apply(normalizar_rotacion)
+for columna in [
+    "Predio",
+    "Rotación",
+    "Potrero",
+    "Bebedero",
+    "Estado"
+]:
+
+    df_maestro[columna] = (
+        df_maestro[columna]
+        .apply(limpiar_texto)
+    )
+
+
+df_maestro["Es_Majada"] = (
+    df_maestro["Potrero"]
+    .apply(es_majada)
 )
+
 
 df_maestro["Área (ha)"] = pd.to_numeric(
     df_maestro["Área (ha)"],
     errors="coerce"
 )
 
-df_maestro["Es_Majada"] = (
-    df_maestro["Potrero"].apply(es_majada)
-)
-
-df_maestro_lookup = (
-    df_maestro
-    .drop_duplicates("Potrero")
-    .set_index("Potrero")
-)
-
 
 # ============================================================
-# ANÁLISIS DE MOVIMIENTOS
+# LEER ANÁLISIS DE MOVIMIENTOS
 # ============================================================
 
 try:
-    df_mov = pd.read_excel(ARCHIVO_MOVIMIENTOS)
+
+    df_mov = pd.read_excel(
+        ARCHIVO_MOVIMIENTOS
+    )
+
 except Exception as e:
+
     st.error(
         f"No fue posible leer el archivo de movimientos: {e}"
     )
+
     st.stop()
 
 
-# Columnas principales del análisis consolidado.
-col_rotacion = buscar_columna(
-    df_mov,
-    ["Rotacion_Codigo", "Rotación_Codigo", "Rotacion", "Rotación"]
-)
+# ============================================================
+# VALIDAR COLUMNA POTRERO EN MOVIMIENTOS
+# ============================================================
 
-col_fecha = buscar_columna(
-    df_mov,
-    ["Fecha_Movimiento", "Fecha Movimiento", "Fecha de Registro"]
-)
+if "Potrero" not in df_mov.columns:
 
-col_ubicacion = buscar_columna(
-    df_mov,
-    ["Ubicacion_Ingreso", "Ubicación_Ingreso", "Ubicacion Ingreso"]
-)
-
-if not col_rotacion or not col_ubicacion:
     st.error(
-        "No se encontraron las columnas necesarias del análisis "
-        "de movimientos."
+        "El archivo de movimientos no contiene "
+        "la columna 'Potrero'."
     )
-    st.write("Columnas encontradas:")
-    st.write(list(df_mov.columns))
+
     st.stop()
 
 
-df_mov["_Rotacion"] = (
-    df_mov[col_rotacion]
-    .apply(normalizar_rotacion)
-)
-
-df_mov["_Ubicacion"] = (
-    df_mov[col_ubicacion]
+df_mov["Potrero"] = (
+    df_mov["Potrero"]
     .apply(limpiar_texto)
 )
 
-if col_fecha:
-    df_mov["_Fecha"] = pd.to_datetime(
-        df_mov[col_fecha],
-        errors="coerce"
+
+# ============================================================
+# OBTENER ROTACIÓN DESDE LOS MOVIMIENTOS
+# ============================================================
+
+if "Rotacion" in df_mov.columns:
+
+    df_mov["Rotacion"] = (
+        df_mov["Rotacion"]
+        .apply(limpiar_texto)
     )
+
 else:
-    df_mov["_Fecha"] = pd.NaT
 
-
-# Fecha/hora secundaria para desempate
-col_hora = buscar_columna(
-    df_mov,
-    ["Fecha_Hora_Registro", "Time", "Timestamp"]
-)
-
-if col_hora:
-    df_mov["_FechaHora"] = pd.to_datetime(
-        df_mov[col_hora],
-        errors="coerce"
+    df_mov["Rotacion"] = (
+        df_mov["Potrero"]
+        .apply(obtener_rotacion_desde_potrero)
     )
-else:
-    df_mov["_FechaHora"] = pd.NaT
-
-
-# Response como tercer desempate
-col_response = buscar_columna(
-    df_mov,
-    ["Response", "response"]
-)
-
-if col_response:
-    df_mov["_Response"] = pd.to_numeric(
-        df_mov[col_response]
-        .astype(str)
-        .str.extract(r"(\d+)", expand=False),
-        errors="coerce"
-    )
-else:
-    df_mov["_Response"] = pd.NA
-
-
-# El análisis actual corresponde a Veraditas.
-# Si posteriormente el Excel trae Predio, se utiliza.
-col_predio = buscar_columna(
-    df_mov,
-    ["Predio", "Predio_Codigo"]
-)
-
-if col_predio:
-    df_mov["_Predio"] = (
-        df_mov[col_predio].apply(limpiar_texto)
-    )
-else:
-    df_mov["_Predio"] = "VE"
 
 
 # ============================================================
-# ÚLTIMO MOVIMIENTO POR PREDIO + ROTACIÓN
+# OBTENER PREDIO DESDE EL POTRERO
 # ============================================================
 
-df_mov = df_mov.sort_values(
-    by=[
-        "_Predio",
-        "_Rotacion",
-        "_Fecha",
-        "_FechaHora",
-        "_Response"
-    ],
-    ascending=True,
-    na_position="first"
-).copy()
+if "Predio" in df_mov.columns:
 
-ultimo_movimiento = (
-    df_mov
-    .drop_duplicates(
-        subset=["_Predio", "_Rotacion"],
-        keep="last"
+    df_mov["Predio"] = (
+        df_mov["Predio"]
+        .apply(limpiar_texto)
     )
-    .copy()
-)
 
-ultimo_movimiento["Clave_Rotacion"] = (
-    ultimo_movimiento["_Rotacion"]
-    + ultimo_movimiento["_Predio"]
-)
+else:
 
-ultimo_movimiento["Potrero_Actual"] = (
-    ultimo_movimiento.apply(
-        lambda f: normalizar_potrero(
-            f["_Ubicacion"],
-            f["_Predio"]
-        ),
-        axis=1
+    mapa_predio = (
+        df_maestro
+        .drop_duplicates("Potrero")
+        .set_index("Potrero")["Predio"]
+        .to_dict()
     )
+
+    df_mov["Predio"] = (
+        df_mov["Potrero"]
+        .map(mapa_predio)
+        .fillna("")
+    )
+
+
+# ============================================================
+# IDENTIFICAR POTREROS OCUPADOS
+# ============================================================
+
+potreros_ocupados = set(
+    df_mov["Potrero"]
+    .dropna()
+    .astype(str)
+    .str.strip()
+    .str.upper()
 )
 
-
-# Diccionario: R09VE -> fila del último movimiento
-mov_por_rotacion = {
-    fila["Clave_Rotacion"]: fila
-    for _, fila in ultimo_movimiento.iterrows()
-    if fila["Clave_Rotacion"]
+potreros_ocupados = {
+    x for x in potreros_ocupados
+    if x and x != "NAN"
 }
 
 
-# Diccionario: P1-R09VE -> fila del movimiento que actualmente
-# ocupa ese potrero
-mov_por_potrero = {
-    fila["Potrero_Actual"]: fila
-    for _, fila in ultimo_movimiento.iterrows()
-    if fila["Potrero_Actual"]
-}
+# ============================================================
+# IDENTIFICAR ROTACIONES OCUPADAS
+# ============================================================
 
+rotaciones_ocupadas = set()
 
-rotaciones_ocupadas = set(mov_por_rotacion.keys())
+for _, fila in df_mov.iterrows():
+
+    predio = limpiar_texto(fila.get("Predio", ""))
+    rotacion = limpiar_texto(fila.get("Rotacion", ""))
+
+    if predio and rotacion:
+
+        rotaciones_ocupadas.add(
+            f"{rotacion}{predio}"
+        )
 
 
 # ============================================================
-# KML DE POTREROS
+# LEER KML
 # ============================================================
 
 features = []
 
+errores_kml = []
+
 try:
-    with zipfile.ZipFile(ARCHIVO_KML, "r") as z:
+
+    with zipfile.ZipFile(
+        ARCHIVO_KML,
+        "r"
+    ) as archivo_zip:
+
         archivos_kml = [
-            n for n in z.namelist()
-            if n.lower().endswith(".kml")
+            nombre
+            for nombre in archivo_zip.namelist()
+            if nombre.lower().endswith(".kml")
         ]
 
         for nombre_archivo in archivos_kml:
-            contenido = z.read(nombre_archivo)
+
+            contenido = archivo_zip.read(
+                nombre_archivo
+            )
+
+            # ------------------------------------------------
+            # Código inicial desde nombre del archivo
+            # ------------------------------------------------
 
             codigo = (
                 nombre_archivo
@@ -404,89 +400,197 @@ try:
 
             codigo = limpiar_texto(codigo)
 
-            nombre_interno = obtener_nombre_kml(contenido)
+            # ------------------------------------------------
+            # Intentar obtener nombre interno del KML
+            # ------------------------------------------------
+
+            nombre_interno = obtener_nombre_kml(
+                contenido
+            )
 
             if nombre_interno:
+
                 codigo = nombre_interno
 
+            # ------------------------------------------------
+            # Extraer geometrías
+            # ------------------------------------------------
+
             try:
-                geometrias = extraer_geometrias_kml(
-                    contenido
+
+                geometrias = (
+                    extraer_geometrias_kml(
+                        contenido
+                    )
                 )
-            except Exception:
+
+            except Exception as e:
+
+                errores_kml.append(
+                    f"{codigo}: {e}"
+                )
+
                 continue
 
+            # ------------------------------------------------
+            # Crear Features
+            # ------------------------------------------------
+
             for geometria in geometrias:
+
                 features.append({
+
                     "type": "Feature",
+
                     "geometry": geometria,
+
                     "properties": {
                         "codigo": codigo
                     }
+
                 })
 
+
 except Exception as e:
+
     st.error(
         f"No fue posible leer el ZIP de KML: {e}"
     )
+
     st.stop()
 
+
+# ============================================================
+# VALIDACIÓN ESPACIAL
+# ============================================================
 
 if not features:
-    st.error("No se encontraron polígonos en el ZIP.")
+
+    st.error(
+        "No se encontraron polígonos en el ZIP."
+    )
+
     st.stop()
 
 
 # ============================================================
-# MÉTRICAS
+# CREAR DICCIONARIO DE LA TABLA MAESTRA
 # ============================================================
 
-df_rotaciones = df_maestro[
-    ~df_maestro["Es_Majada"]
-].copy()
+df_maestro_lookup = (
+    df_maestro
+    .drop_duplicates("Potrero")
+    .set_index("Potrero")
+)
+
+
+# ============================================================
+# IDENTIFICAR ROTACIONES DEL MAESTRO
+# ============================================================
+
+df_rotaciones_maestro = (
+    df_maestro[
+        ~df_maestro["Es_Majada"]
+    ]
+    .copy()
+)
 
 rotaciones_totales = (
-    df_rotaciones[
+    df_rotaciones_maestro[
         ["Predio", "Rotación"]
     ]
     .drop_duplicates()
 )
 
-numero_rotaciones = len(rotaciones_totales)
+numero_rotaciones = len(
+    rotaciones_totales
+)
+
+
+# ============================================================
+# ROTACIONES OCUPADAS REALES
+# ============================================================
+
+rotaciones_ocupadas_validas = set()
+
+for _, fila in df_mov.iterrows():
+
+    predio = limpiar_texto(
+        fila.get("Predio", "")
+    )
+
+    rotacion = limpiar_texto(
+        fila.get("Rotacion", "")
+    )
+
+    if predio and rotacion:
+
+        clave = (
+            f"{rotacion}{predio}"
+        )
+
+        if not (
+            rotacion == ""
+            or predio == ""
+        ):
+
+            rotaciones_ocupadas_validas.add(
+                clave
+            )
+
 
 numero_rotaciones_ocupadas = len(
-    rotaciones_ocupadas.intersection(
-        {
-            clave_rotacion(p, r)
-            for p, r in zip(
-                rotaciones_totales["Predio"],
-                rotaciones_totales["Rotación"]
-            )
-        }
-    )
+    rotaciones_ocupadas_validas
 )
 
 numero_rotaciones_disponibles = max(
-    numero_rotaciones - numero_rotaciones_ocupadas,
+    numero_rotaciones -
+    numero_rotaciones_ocupadas,
     0
 )
 
-area_rotaciones = df_rotaciones["Área (ha)"].sum()
+
+# ============================================================
+# ÁREA
+# ============================================================
+
+area_total = df_maestro[
+    "Área (ha)"
+].sum()
+
+area_rotaciones = df_rotaciones_maestro[
+    "Área (ha)"
+].sum()
+
+area_majadas = df_maestro[
+    df_maestro["Es_Majada"]
+]["Área (ha)"].sum()
+
+
+# ============================================================
+# ESTADOS DE ESTABLECIMIENTO
+# ============================================================
 
 establecidos = len(
-    df_rotaciones[
-        df_rotaciones["Estado"] == "ESTABLECIDO"
+    df_maestro[
+        ~df_maestro["Es_Majada"]
+        & (
+            df_maestro["Estado"]
+            .str.upper()
+            == "ESTABLECIDO"
+        )
     ]
 )
 
 no_establecidos = len(
-    df_rotaciones[
-        df_rotaciones["Estado"] != "ESTABLECIDO"
+    df_maestro[
+        ~df_maestro["Es_Majada"]
+        & (
+            df_maestro["Estado"]
+            .str.upper()
+            != "ESTABLECIDO"
+        )
     ]
-)
-
-numero_majadas = int(
-    df_maestro["Es_Majada"].sum()
 )
 
 
@@ -496,92 +600,121 @@ numero_majadas = int(
 
 st.sidebar.header("🔎 Filtros")
 
-predios = sorted(
-    df_maestro["Predio"].dropna().unique()
+predios_disponibles = sorted(
+    df_maestro["Predio"]
+    .dropna()
+    .unique()
 )
 
 predio_seleccionado = st.sidebar.selectbox(
     "Predio",
-    ["TODOS"] + predios
+    ["TODOS"] + predios_disponibles
 )
+
 
 mostrar_majadas = st.sidebar.checkbox(
     "Mostrar majadas",
     value=True
 )
 
+
 estado_seleccionado = st.sidebar.selectbox(
     "Estado del potrero",
-    ["TODOS", "ESTABLECIDO", "NO ESTABLECIDO"]
+    [
+        "TODOS",
+        "Establecido",
+        "No Establecido"
+    ]
 )
 
 
 # ============================================================
-# INDICADORES
+# INFORMACIÓN SUPERIOR
 # ============================================================
 
-c1, c2, c3, c4, c5 = st.columns(5)
+col1, col2, col3, col4, col5 = st.columns(5)
 
-with c1:
+with col1:
+
     st.metric(
         "Predios",
         df_maestro["Predio"].nunique()
     )
 
-with c2:
+with col2:
+
     st.metric(
         "Potreros",
-        len(df_rotaciones)
+        len(
+            df_maestro[
+                ~df_maestro["Es_Majada"]
+            ]
+        )
     )
 
-with c3:
+with col3:
+
     st.metric(
         "Rotaciones",
         numero_rotaciones
     )
 
-with c4:
+with col4:
+
     st.metric(
         "Rotaciones ocupadas",
         numero_rotaciones_ocupadas
     )
 
-with c5:
+with col5:
+
     st.metric(
         "Área de potreros",
         f"{area_rotaciones:,.1f} ha"
     )
 
 
-c1, c2, c3, c4 = st.columns(4)
+# ============================================================
+# SEGUNDA FILA DE INDICADORES
+# ============================================================
 
-with c1:
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+
     st.metric(
         "Rotaciones disponibles",
         numero_rotaciones_disponibles
     )
 
-with c2:
+with col2:
+
     st.metric(
         "Potreros establecidos",
         establecidos
     )
 
-with c3:
+with col3:
+
     st.metric(
         "Potreros no establecidos",
         no_establecidos
     )
 
-with c4:
+with col4:
+
     st.metric(
         "Majadas",
-        numero_majadas
+        len(
+            df_maestro[
+                df_maestro["Es_Majada"]
+            ]
+        )
     )
 
 
 # ============================================================
-# MAPA
+# CREAR MAPA
 # ============================================================
 
 m = folium.Map(
@@ -591,23 +724,57 @@ m = folium.Map(
     control_scale=True
 )
 
+
+# ============================================================
+# COORDENADAS PARA EXTENSIÓN
+# ============================================================
+
 todos_los_puntos = []
 
 
+# ============================================================
+# AGREGAR POLÍGONOS
+# ============================================================
+
 for feature in features:
 
-    codigo = limpiar_texto(
-        feature["properties"]["codigo"]
-    )
+    codigo = feature[
+        "properties"
+    ]["codigo"]
+
+    codigo = limpiar_texto(codigo)
 
     # --------------------------------------------------------
-    # Maestro
+    # Buscar información en tabla maestra
     # --------------------------------------------------------
-
-    fila_maestro = None
 
     if codigo in df_maestro_lookup.index:
-        fila_maestro = df_maestro_lookup.loc[codigo]
+
+        fila_maestro = (
+            df_maestro_lookup
+            .loc[codigo]
+        )
+
+    else:
+
+        fila_maestro = None
+
+    # --------------------------------------------------------
+    # Determinar si es majada
+    # --------------------------------------------------------
+
+    majada = es_majada(codigo)
+
+    # --------------------------------------------------------
+    # Filtro de majadas
+    # --------------------------------------------------------
+
+    if majada and not mostrar_majadas:
+        continue
+
+    # --------------------------------------------------------
+    # Datos maestro
+    # --------------------------------------------------------
 
     if fila_maestro is not None:
 
@@ -615,7 +782,7 @@ for feature in features:
             fila_maestro["Predio"]
         )
 
-        rotacion = normalizar_rotacion(
+        rotacion = limpiar_texto(
             fila_maestro["Rotación"]
         )
 
@@ -625,8 +792,16 @@ for feature in features:
 
         area = fila_maestro["Área (ha)"]
 
-        estado_establecimiento = limpiar_texto(
-            fila_maestro["Estado"]
+        estado_establecimiento = (
+            limpiar_texto(
+                fila_maestro["Estado"]
+            )
+        )
+
+        fecha_establecimiento = (
+            fila_maestro[
+                "Fecha Establecimiento"
+            ]
         )
 
     else:
@@ -636,15 +811,11 @@ for feature in features:
         bebedero = ""
         area = None
         estado_establecimiento = ""
-
-    majada = es_majada(codigo)
+        fecha_establecimiento = None
 
     # --------------------------------------------------------
-    # Filtros
+    # Filtro por predio
     # --------------------------------------------------------
-
-    if majada and not mostrar_majadas:
-        continue
 
     if (
         predio_seleccionado != "TODOS"
@@ -652,18 +823,30 @@ for feature in features:
     ):
         continue
 
-    if not majada and estado_seleccionado != "TODOS":
-
-        if estado_establecimiento != estado_seleccionado:
-            continue
-
     # --------------------------------------------------------
-    # Estado actual
+    # Filtro por estado
     # --------------------------------------------------------
 
-    fila_mov = mov_por_potrero.get(codigo)
+    if not majada:
 
-    ocupado = fila_mov is not None
+        if (
+            estado_seleccionado
+            != "TODOS"
+        ):
+
+            if (
+                estado_establecimiento
+                != estado_seleccionado.upper()
+            ):
+                continue
+
+    # --------------------------------------------------------
+    # Estado de ocupación
+    # --------------------------------------------------------
+
+    ocupado = (
+        codigo in potreros_ocupados
+    )
 
     # --------------------------------------------------------
     # Colores
@@ -674,7 +857,7 @@ for feature in features:
         color = "#8E44AD"
         relleno = "#BB8FCE"
         opacidad = 0.65
-        estado_mapa = "MAJADA BOVINA"
+        estado_mapa = "MAJADA"
 
     elif ocupado:
 
@@ -685,7 +868,10 @@ for feature in features:
             "OCUPADO — ÚLTIMO MOVIMIENTO REGISTRADO"
         )
 
-    elif estado_establecimiento == "ESTABLECIDO":
+    elif (
+        estado_establecimiento
+        == "ESTABLECIDO"
+    ):
 
         color = "#757575"
         relleno = "#D9D9D9"
@@ -700,108 +886,140 @@ for feature in features:
         estado_mapa = "NO ESTABLECIDO"
 
     # --------------------------------------------------------
-    # Información del movimiento
+    # Buscar movimiento
     # --------------------------------------------------------
 
-    if fila_mov is not None:
+    datos_mov = df_mov[
+        df_mov["Potrero"]
+        == codigo
+    ]
 
-        fecha_mov = fila_mov.get("_Fecha")
+    if not datos_mov.empty:
 
-        if pd.notna(fecha_mov):
-            fecha_mov_texto = fecha_mov.strftime(
-                "%d/%m/%Y"
-            )
-        else:
-            fecha_mov_texto = "No disponible"
-
-        col_lote = buscar_columna(
-            df_mov,
-            ["Numero del Lote", "Número del Lote", "Lote"]
-        )
-
-        col_tipo_lote = buscar_columna(
-            df_mov,
-            ["Tipo de Lote", "Tipo de lote"]
-        )
-
-        col_cantidad = buscar_columna(
-            df_mov,
-            [
-                "Cantidad de Animales Lote",
-                "Cantidad de animales",
-                "Cantidad Animales"
-            ]
-        )
-
-        lote = (
-            mostrar_valor(fila_mov.get(col_lote))
-            if col_lote else "No disponible"
-        )
-
-        tipo_lote = (
-            mostrar_valor(fila_mov.get(col_tipo_lote))
-            if col_tipo_lote else "No disponible"
-        )
-
-        cantidad = (
-            mostrar_valor(fila_mov.get(col_cantidad))
-            if col_cantidad else "No disponible"
-        )
-
-        altura_actual = mostrar_valor(
-            fila_mov.get(
-                "Altura promedio actual (cm)"
-            ),
-            " cm"
-        )
-
-        altura_anterior = mostrar_valor(
-            fila_mov.get(
-                "Altura promedio anterior (cm)"
-            ),
-            " cm"
-        )
-
-        observaciones = mostrar_valor(
-            fila_mov.get("Observaciones")
-        )
-
-        ubicacion_actual = mostrar_valor(
-            fila_mov.get("Potrero_Actual")
+        fila_mov = (
+            datos_mov.iloc[0]
         )
 
     else:
 
-        fecha_mov_texto = "No disponible"
-        lote = "No disponible"
-        tipo_lote = "No disponible"
-        cantidad = "No disponible"
-        altura_actual = "No disponible"
-        altura_anterior = "No disponible"
-        observaciones = "No disponible"
-        ubicacion_actual = "No disponible"
+        fila_mov = None
 
     # --------------------------------------------------------
-    # Popup
+    # Construir popup
     # --------------------------------------------------------
 
     if majada:
 
         popup_html = f"""
         <div style="font-family:Arial; min-width:280px;">
-            <h3>{codigo}</h3>
 
-            <b>Tipo:</b> Majada bovina<br>
+            <h3 style="margin-bottom:10px;">
+                {codigo}
+            </h3>
+
+            <b>Tipo:</b> Majada<br>
             <b>Predio:</b> {predio}<br>
             <b>Área:</b> {mostrar_valor(area, " ha")}<br>
             <b>Bebedero:</b> {mostrar_valor(bebedero)}<br>
+
+            <hr>
+
+            <b>Estado:</b> Majada bovina
         </div>
         """
 
     else:
 
+        # --------------------------------------------
+        # Información de movimiento
+        # --------------------------------------------
+
+        if fila_mov is not None:
+
+            fecha_mov = ""
+
+            if (
+                "Última fecha de movimiento"
+                in df_mov.columns
+            ):
+
+                fecha_mov = pd.to_datetime(
+                    fila_mov[
+                        "Última fecha de movimiento"
+                    ],
+                    errors="coerce"
+                )
+
+            if pd.notna(fecha_mov):
+
+                fecha_mov = (
+                    fecha_mov.strftime(
+                        "%d/%m/%Y"
+                    )
+                )
+
+            else:
+
+                fecha_mov = (
+                    "No disponible"
+                )
+
+            lote = mostrar_valor(
+                fila_mov.get(
+                    "Lote",
+                    None
+                )
+            )
+
+            tipo_lote = mostrar_valor(
+                fila_mov.get(
+                    "Tipo de lote",
+                    None
+                )
+            )
+
+            cantidad = mostrar_valor(
+                fila_mov.get(
+                    "Cantidad de animales",
+                    None
+                )
+            )
+
+            altura_actual = mostrar_valor(
+                fila_mov.get(
+                    "Altura promedio actual (cm)",
+                    None
+                ),
+                " cm"
+            )
+
+            altura_anterior = mostrar_valor(
+                fila_mov.get(
+                    "Altura promedio anterior (cm)",
+                    None
+                ),
+                " cm"
+            )
+
+            observaciones = mostrar_valor(
+                fila_mov.get(
+                    "Observaciones",
+                    None
+                )
+            )
+
+        else:
+
+            fecha_mov = "No disponible"
+            lote = "No disponible"
+            tipo_lote = "No disponible"
+            cantidad = "No disponible"
+            altura_actual = "No disponible"
+            altura_anterior = "No disponible"
+            observaciones = "No disponible"
+
         popup_html = f"""
-        <div style="font-family:Arial; min-width:320px;">
+        <div style="font-family:Arial; min-width:300px;">
 
             <h3 style="margin-bottom:10px;">
                 {codigo}
@@ -819,10 +1037,7 @@ for feature in features:
             <hr>
 
             <b>Último movimiento:</b>
-            {fecha_mov_texto}<br>
-
-            <b>Ubicación actual:</b>
-            {ubicacion_actual}<br>
+            {fecha_mov}<br>
 
             <b>Lote:</b>
             {lote}<br>
@@ -847,24 +1062,35 @@ for feature in features:
 
     popup = folium.Popup(
         popup_html,
-        max_width=400
+        max_width=380
     )
 
+    # --------------------------------------------------------
+    # Agregar polígono
+    # --------------------------------------------------------
+
     folium.GeoJson(
+
         feature,
 
         style_function=lambda feature,
             color=color,
             relleno=relleno,
             opacidad=opacidad: {
+
                 "color": color,
+
                 "weight": 2,
+
                 "fillColor": relleno,
+
                 "fillOpacity": opacidad
             },
 
         highlight_function=lambda feature: {
+
             "weight": 4,
+
             "fillOpacity": 0.85
         },
 
@@ -878,28 +1104,53 @@ for feature in features:
     ).add_to(m)
 
     # --------------------------------------------------------
-    # Bounds
+    # Guardar coordenadas
     # --------------------------------------------------------
 
-    for ring in feature["geometry"]["coordinates"]:
+    geometry = feature[
+        "geometry"
+    ]
+
+    for ring in geometry[
+        "coordinates"
+    ]:
+
         for lon, lat in ring:
-            todos_los_puntos.append([lat, lon])
+
+            todos_los_puntos.append(
+                [lat, lon]
+            )
 
 
 # ============================================================
-# AJUSTAR EXTENSIÓN
+# AJUSTAR MAPA
 # ============================================================
 
 if todos_los_puntos:
 
-    lats = [p[0] for p in todos_los_puntos]
-    lons = [p[1] for p in todos_los_puntos]
+    lats = [
+        punto[0]
+        for punto in todos_los_puntos
+    ]
+
+    lons = [
+        punto[1]
+        for punto in todos_los_puntos
+    ]
+
+    bounds = [
+        [
+            min(lats),
+            min(lons)
+        ],
+        [
+            max(lats),
+            max(lons)
+        ]
+    ]
 
     m.fit_bounds(
-        [
-            [min(lats), min(lons)],
-            [max(lats), max(lons)]
-        ],
+        bounds,
         padding=(20, 20)
     )
 
@@ -924,56 +1175,62 @@ st_folium(
 
 st.markdown(
     """
-### Leyenda
+    ### Leyenda
 
-🟢 **Verde:** rotación ocupada según el último movimiento registrado.
+    🟢 **Verde:** rotación ocupada según el último
+    movimiento registrado.
 
-⚪ **Gris:** potrero establecido sin ocupación actual registrada.
+    ⚪ **Gris:** potrero establecido sin ocupación
+    identificada en el último movimiento.
 
-🟠 **Naranja:** potrero no establecido.
+    🟠 **Naranja:** potrero no establecido.
 
-🟣 **Morado:** majada bovina.
+    🟣 **Morado:** majada bovina.
 
-**Nota:** la ubicación corresponde al último movimiento registrado
-en el sistema; no representa una verificación GPS en tiempo real.
-"""
+    **Nota:** la ubicación mostrada corresponde al
+    último movimiento registrado en el sistema; no
+    representa una verificación GPS en tiempo real.
+    """
 )
 
 
 # ============================================================
-# CONTROL DE DATOS
+# RESUMEN DE CONTROL
 # ============================================================
 
 with st.expander("🔍 Control de datos"):
 
-    c1, c2, c3, c4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
 
-    with c1:
+    with col1:
+
         st.write(
             "**Registros Tabla Maestra:**",
             len(df_maestro)
         )
 
-    with c2:
+    with col2:
+
         st.write(
             "**KML encontrados:**",
-            len({
-                f["properties"]["codigo"]
-                for f in features
-            })
+            len(
+                {
+                    f["properties"]["codigo"]
+                    for f in features
+                }
+            )
         )
 
-    with c3:
+    with col3:
+
         st.write(
             "**Potreros con movimiento:**",
-            len(mov_por_potrero)
+            len(potreros_ocupados)
         )
 
-    with c4:
-        st.write(
-            "**Rotaciones con movimiento:**",
-            numero_rotaciones_ocupadas
-        )
+    # --------------------------------------------------------
+    # KML sin maestro
+    # --------------------------------------------------------
 
     codigos_kml = {
         f["properties"]["codigo"]
@@ -985,37 +1242,45 @@ with st.expander("🔍 Control de datos"):
     )
 
     kml_sin_maestro = (
-        codigos_kml - codigos_maestro
+        codigos_kml
+        - codigos_maestro
     )
 
     maestro_sin_kml = (
-        codigos_maestro - codigos_kml
+        codigos_maestro
+        - codigos_kml
     )
 
     if not kml_sin_maestro:
+
         st.success(
             "✓ Todos los KML tienen correspondencia "
             "en la Tabla Maestra."
         )
+
     else:
+
         st.warning(
-            "KML sin correspondencia:"
+            "KML sin correspondencia en la Tabla Maestra:"
         )
-        st.write(sorted(kml_sin_maestro))
+
+        st.write(
+            sorted(kml_sin_maestro)
+        )
 
     if not maestro_sin_kml:
+
         st.success(
             "✓ Todos los registros de la Tabla Maestra "
             "tienen correspondencia espacial."
         )
+
     else:
+
         st.warning(
             "Registros de la Tabla Maestra sin KML:"
         )
-        st.write(sorted(maestro_sin_kml))
 
-    st.info(
-        "Integración de movimientos: "
-        f"{numero_rotaciones_ocupadas} rotaciones con último "
-        "movimiento identificado."
-    )
+        st.write(
+            sorted(maestro_sin_kml)
+        )
