@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import folium
@@ -358,7 +357,7 @@ mostrar_lineas = st.sidebar.checkbox(
 
 
 # ============================================================
-# MÉTRICAS
+# RESUMEN GENERAL
 # ============================================================
 
 rotaciones = maestro[
@@ -390,58 +389,62 @@ no_establecidos = len(
     ]
 )
 
-c1, c2, c3, c4, c5 = st.columns(5)
+total_predios = maestro["Predio"].nunique()
+total_potreros = len(maestro[~maestro["Es_Majada"]])
+total_rotaciones = len(rotaciones)
+total_ocupadas = len(rotaciones_ocupadas)
+total_disponibles = max(total_rotaciones - total_ocupadas, 0)
+total_majadas = int(maestro["Es_Majada"].sum())
 
-with c1:
-    st.metric("Predios", maestro["Predio"].nunique())
-
-with c2:
-    st.metric(
+resumen_general = pd.DataFrame({
+    "Indicador": [
+        "Predios",
         "Potreros",
-        len(maestro[~maestro["Es_Majada"]])
-    )
-
-with c3:
-    st.metric("Rotaciones", len(rotaciones))
-
-with c4:
-    st.metric(
+        "Rotaciones",
         "Rotaciones ocupadas",
-        len(rotaciones_ocupadas)
-    )
-
-with c5:
-    st.metric(
-        "Área de potreros",
-        f"{area_rotaciones:,.1f} ha"
-    )
-
-c1, c2, c3, c4 = st.columns(4)
-
-with c1:
-    st.metric(
         "Rotaciones disponibles",
-        max(len(rotaciones) - len(rotaciones_ocupadas), 0)
-    )
-
-with c2:
-    st.metric("Potreros establecidos", establecidos)
-
-with c3:
-    st.metric("Potreros no establecidos", no_establecidos)
-
-with c4:
-    st.metric(
+        "Área de potreros",
+        "Potreros establecidos",
+        "Potreros no establecidos",
         "Majadas",
-        int(maestro["Es_Majada"].sum())
-    )
-
+    ],
+    "Resultado": [
+        total_predios,
+        total_potreros,
+        total_rotaciones,
+        total_ocupadas,
+        total_disponibles,
+        f"{area_rotaciones:,.1f} ha",
+        establecidos,
+        no_establecidos,
+        total_majadas,
+    ]
+})
 
 # ============================================================
-# TÍTULO
+# RESUMEN GENERAL EN TABLA
 # ============================================================
 
 st.title("🌱 Proyecto Ganadería Veraditas — PGVE")
+
+st.subheader("Resumen general")
+
+st.dataframe(
+    resumen_general,
+    hide_index=True,
+    use_container_width=True,
+    column_config={
+        "Indicador": st.column_config.TextColumn(
+            "Indicador",
+            width="medium"
+        ),
+        "Resultado": st.column_config.TextColumn(
+            "Resultado",
+            width="small"
+        )
+    }
+)
+
 st.caption(
     "Mapa operativo de potreros y rotaciones según la ubicación "
     "actual registrada"
@@ -456,9 +459,27 @@ st.caption(
 m = folium.Map(
     location=[4.5, -69.5],
     zoom_start=10,
-    tiles="OpenStreetMap",
-    control_scale=True
+    tiles=None,
+    control_scale=True,
+    min_zoom=8,
+    max_zoom=19
 )
+
+folium.TileLayer(
+    tiles="https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+    attr="Google Satellite",
+    name="🛰️ Satélite",
+    subdomains=["mt0", "mt1", "mt2", "mt3"],
+    overlay=False,
+    control=True
+).add_to(m)
+
+folium.TileLayer(
+    tiles="OpenStreetMap",
+    name="🗺️ Mapa",
+    overlay=False,
+    control=True
+).add_to(m)
 
 bounds = []
 
@@ -519,8 +540,8 @@ for codigo, ring in potrero_features:
 
     else:
         color = "#EF6C00"
-        fill = "#FFB74D"
-        opacity = 0.45
+        fill = "#FFFFFF"
+        opacity = 0.0
         estado_mapa = "NO ESTABLECIDO"
 
     # Popup
@@ -713,13 +734,30 @@ if bounds:
     lats = [p[0] for p in bounds]
     lons = [p[1] for p in bounds]
 
+    mapa_bounds = [
+        [min(lats), min(lons)],
+        [max(lats), max(lons)]
+    ]
+
     m.fit_bounds(
-        [
-            [min(lats), min(lons)],
-            [max(lats), max(lons)]
-        ],
+        mapa_bounds,
         padding=(20, 20)
     )
+
+    # Limita el desplazamiento a la zona PGVE.
+    # Se deja un pequeño margen para facilitar la navegación.
+    m.options["maxBounds"] = [
+        [
+            min(lats) - 0.03,
+            min(lons) - 0.03
+        ],
+        [
+            max(lats) + 0.03,
+            max(lons) + 0.03
+        ]
+    ]
+
+    m.options["maxBoundsViscosity"] = 1.0
 
 
 # ============================================================
@@ -749,7 +787,7 @@ movimiento registrado.
 
 ⚪ **Gris:** potrero establecido sin ocupación actual registrada.
 
-🟠 **Naranja:** potrero no establecido.
+🟠 **Línea naranja:** potrero no establecido, sin relleno.
 
 🟣 **Morado:** majada bovina.
 
